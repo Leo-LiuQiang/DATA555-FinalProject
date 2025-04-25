@@ -1,0 +1,615 @@
+---
+title: "DATA555_FinalProject"
+author: "Qiang Liu"
+date: "2025-04-25"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    code_folding: hide
+    source_code: embed
+    vertical_layout: fill
+    theme:
+      version: 5
+      bootswatch: minty
+---
+
+```{r setup, include=FALSE, warning=FALSE,message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(plotly)
+library(ggplot2)
+library(thematic)
+thematic::thematic_rmd()
+```
+
+# Dataset Desciption and Real world impact/importance {.tabset}
+
+Row
+-----------------------------------------------------------------------
+
+### Data source and sample size
+
+- single nucleus RNA sequencing data: n = 436 from ROS/MAP postmortem brain samples, containing six major cell types.
+- Genome-wide Association Studies data for Alzheimer's Disease Dementia (ADD): 39,106 clinically diagnosed cases, 46,828 proxy-ADD cases, and 401,577 controls from UK Biobank.
+
+### How the data was collected
+
+- snRNA-seq data is from ROS/MAP study, where they collected data from the end of a longitudinal follow-up study.
+- GWAS data is from UKBiobank Public summary statistics data.
+
+### Study population
+
+- The ROS/MAP genetics, snRNA-seq originates from two longitudinal, community-based clinic pathological cohort studies in older Catholic nuns, priests, and brothers aged 65 years and older from across the United States.
+
+### Where and when data were collected
+
+- Since 1994, approximately 1,200 older persons have been enrolled in ROS and 580 are currently alive. Participants also have yearly blood draws which result in the storage of serum, plasma and cells.
+- MAP began in 1997 and over 1,600 older adults have enrolled. Approximately 1,000 participants are currently alive. Participants also have yearly blood draws.
+
+### Real-world impact and importance of dashboard
+
+- The project helps us identify cell type specific significant risk genes associated with Alzheimer’s Disease using different statistical models.
+- The findings could be used for future biomedical research to uncover new treatment gene target of Alzheimer’s Disease.
+
+# Interactive QQ plots {.tabset}
+
+Row
+-----------------------------------------------------------------------
+
+### HTML Widget 1: Plotly Interactive Quantile-Quantile plot of TWAS p-values across cell types
+
+```{r HTML1, warning=FALSE, message=FALSE, echo = FALSE, fig.width=7, fig.height=7}
+input_data <- read.delim("/Users/leofanfever/Documents/Biostatistics/25SPRING Classes/DATA 555 Current Topics in Data Science/Final Project/AD_All.txt")
+input_data <- input_data[,c(5,6,7,8,9,10)]
+colnames(input_data) <- c("GeneName","Celltype","p_DPR","p_EN","p_FUSION","p_ACAT")
+
+compute_qq <- function(pvals) {
+  good_idx <- which(!is.na(pvals) & pvals > 0)
+  pvals_sorted <- sort(pvals[good_idx])
+  n <- length(pvals_sorted)
+  
+  observed <- -log10(pvals_sorted)
+  expected <- -log10(seq_along(pvals_sorted)/(n+1))
+  
+  data.frame(
+    ROW_IDX   = good_idx[order(pvals[good_idx])],
+    OBSERVED  = observed,
+    EXPECTED  = expected
+  )
+}
+
+celltypes <- c("Ast","Ex","In","Mic","Oli","Opc")
+p_cols    <- c("p_DPR","p_EN","p_FUSION","p_ACAT")
+my_colors <- c("blue", "red", "green", "orange")
+
+fig <- plot_ly()
+trace_idx <- 0
+
+my_max_list <- c()
+
+for (ct in celltypes) {
+  df_ct <- filter(input_data, Celltype == ct)
+  
+  all_pvals_ct <- unlist(df_ct[p_cols])
+  qq_all_ct    <- compute_qq(all_pvals_ct)
+  
+  max_val_ct   <- max(qq_all_ct$OBSERVED, qq_all_ct$EXPECTED)
+  my_max_list  <- c(my_max_list, max_val_ct)
+}
+
+for (ct_idx in seq_along(celltypes)) {
+  ct <- celltypes[ct_idx]
+  df_ct <- filter(input_data, Celltype == ct)
+  
+  for (i in seq_along(p_cols)) {
+    pcol <- p_cols[i]
+    color_i <- my_colors[i]
+    
+    qq_data <- compute_qq(df_ct[[pcol]])
+    qq_data$GeneName <- df_ct[qq_data$ROW_IDX,"GeneName"]
+    
+    trace_idx <- trace_idx + 1
+    visible_default <- ifelse(ct_idx == 1, TRUE, FALSE)
+    
+    fig <- fig %>%
+      add_trace(
+        x = qq_data$EXPECTED,
+        y = qq_data$OBSERVED,
+        type = "scatter",
+        mode = "markers",
+        marker = list(color = color_i),
+        name = paste0(ct,"-",pcol),
+        visible = visible_default,
+        hoverinfo = "text",
+        text = paste0("Celltype: ", ct,
+                      "<br>Gene: ", qq_data$GeneName,
+                      "<br>Observed: ", qq_data$OBSERVED,
+                      "<br>Expected: ", qq_data$EXPECTED)
+      )
+  }
+}
+
+num_celltypes <- length(celltypes)
+num_models    <- length(p_cols)
+n_traces      <- num_celltypes * num_models
+
+shapes_list <- lapply(seq_along(celltypes), function(i){
+  list(
+    list(
+      type = "line",
+      xref = "x",
+      yref = "y",
+      x0 = 0,
+      y0 = 0,
+      x1 = my_max_list[i],
+      y1 = my_max_list[i],
+      line = list(color = "black", dash = "dash")
+    )
+  )
+})
+
+updatemenus <- list(
+  list(
+    type = "dropdown",
+    active = 0,
+    buttons = lapply(seq_along(celltypes), function(i){
+      celltype_visibility <- rep(FALSE, n_traces)
+
+      start_idx <- (i-1)*num_models + 1
+      end_idx   <- start_idx + (num_models - 1)
+      celltype_visibility[start_idx:end_idx] <- TRUE
+      
+      list(
+        method = "update",
+        args = list(
+          list(visible = celltype_visibility),
+          list(
+            shapes = shapes_list[[i]],
+            xaxis = list(range = c(0, my_max_list[i])),
+            yaxis = list(range = c(0, my_max_list[i]))
+          )
+        ),
+        label = celltypes[i]
+      )
+    })
+  )
+)
+
+fig <- fig %>%
+  layout(
+    title = "Quantile-quantile plots of TWAS results for 4 Models, 6 Cell Types",
+    xaxis = list(
+      title = "Expected -log10(p-values)",
+      range = c(0, my_max_list[1])
+    ),
+    yaxis = list(
+      title = "Observed -log10(p-values)",
+      range = c(0, my_max_list[1])
+    ),
+    shapes = shapes_list[[1]],
+    updatemenus = updatemenus
+  )
+
+fig
+```
+
+```{r HTML1_code, ref.label = 'HTML1', echo = TRUE, warning=FALSE, message=FALSE, eval = FALSE}
+input_data <- read.delim("/Users/leofanfever/Documents/Biostatistics/25SPRING Classes/DATA 555 Current Topics in Data Science/Final Project/AD_All.txt")
+input_data <- input_data[,c(5,6,7,8,9,10)]
+colnames(input_data) <- c("GeneName","Celltype","p_DPR","p_EN","p_FUSION","p_ACAT")
+
+compute_qq <- function(pvals) {
+  good_idx <- which(!is.na(pvals) & pvals > 0)
+  pvals_sorted <- sort(pvals[good_idx])
+  n <- length(pvals_sorted)
+  
+  observed <- -log10(pvals_sorted)
+  expected <- -log10(seq_along(pvals_sorted)/(n+1))
+  
+  data.frame(
+    ROW_IDX   = good_idx[order(pvals[good_idx])],
+    OBSERVED  = observed,
+    EXPECTED  = expected
+  )
+}
+
+celltypes <- c("Ast","Ex","In","Mic","Oli","Opc")
+p_cols    <- c("p_DPR","p_EN","p_FUSION","p_ACAT")
+my_colors <- c("blue", "red", "green", "orange")
+
+fig <- plot_ly()
+trace_idx <- 0
+
+my_max_list <- c()
+
+for (ct in celltypes) {
+  df_ct <- filter(input_data, Celltype == ct)
+  
+  all_pvals_ct <- unlist(df_ct[p_cols])
+  qq_all_ct    <- compute_qq(all_pvals_ct)
+  
+  max_val_ct   <- max(qq_all_ct$OBSERVED, qq_all_ct$EXPECTED)
+  my_max_list  <- c(my_max_list, max_val_ct)
+}
+
+for (ct_idx in seq_along(celltypes)) {
+  ct <- celltypes[ct_idx]
+  df_ct <- filter(input_data, Celltype == ct)
+  
+  for (i in seq_along(p_cols)) {
+    pcol <- p_cols[i]
+    color_i <- my_colors[i]
+    
+    qq_data <- compute_qq(df_ct[[pcol]])
+    qq_data$GeneName <- df_ct[qq_data$ROW_IDX,"GeneName"]
+    
+    trace_idx <- trace_idx + 1
+    visible_default <- ifelse(ct_idx == 1, TRUE, FALSE)
+    
+    fig <- fig %>%
+      add_trace(
+        x = qq_data$EXPECTED,
+        y = qq_data$OBSERVED,
+        type = "scatter",
+        mode = "markers",
+        marker = list(color = color_i),
+        name = paste0(ct,"-",pcol),
+        visible = visible_default,
+        hoverinfo = "text",
+        text = paste0("Celltype: ", ct,
+                      "<br>Gene: ", qq_data$GeneName,
+                      "<br>Observed: ", qq_data$OBSERVED,
+                      "<br>Expected: ", qq_data$EXPECTED)
+      )
+  }
+}
+
+num_celltypes <- length(celltypes)
+num_models    <- length(p_cols)
+n_traces      <- num_celltypes * num_models
+
+shapes_list <- lapply(seq_along(celltypes), function(i){
+  list(
+    list(
+      type = "line",
+      xref = "x",
+      yref = "y",
+      x0 = 0,
+      y0 = 0,
+      x1 = my_max_list[i],
+      y1 = my_max_list[i],
+      line = list(color = "black", dash = "dash")
+    )
+  )
+})
+
+updatemenus <- list(
+  list(
+    type = "dropdown",
+    active = 0,
+    buttons = lapply(seq_along(celltypes), function(i){
+      celltype_visibility <- rep(FALSE, n_traces)
+
+      start_idx <- (i-1)*num_models + 1
+      end_idx   <- start_idx + (num_models - 1)
+      celltype_visibility[start_idx:end_idx] <- TRUE
+      
+      list(
+        method = "update",
+        args = list(
+          list(visible = celltype_visibility),
+          list(
+            shapes = shapes_list[[i]],
+            xaxis = list(range = c(0, my_max_list[i])),
+            yaxis = list(range = c(0, my_max_list[i]))
+          )
+        ),
+        label = celltypes[i]
+      )
+    })
+  )
+)
+
+fig <- fig %>%
+  layout(
+    title = "Quantile-quantile plots of TWAS results for 4 Models, 6 Cell Types",
+    xaxis = list(
+      title = "Expected -log10(p-values)",
+      range = c(0, my_max_list[1])
+    ),
+    yaxis = list(
+      title = "Observed -log10(p-values)",
+      range = c(0, my_max_list[1])
+    ),
+    shapes = shapes_list[[1]],
+    updatemenus = updatemenus
+  )
+
+fig
+```
+
+Row
+-----------------------------------------------------------------------
+
+### Title and labels
+
+- Title: Quantile-quantile plots of TWAS results.
+- X-axis: Expected -log_10⁡(p-value) under the null hypothesis, unitless.
+- Y-axis: Observed -log_10⁡(p-value), unitless.
+
+### Key takeaways
+
+- In this HTML widget, each dot is a gene and you can hover on it to check each gene's information. The drop down menu on the left top side can choose from six cell types in prefrontal cortex. As shown in the Quantile-Quantile plots, four methods across six cell types have similar inflation pattern, which is the observed -log10(p-value) is higher than the expected -log10(p-value), and that is common issue encountered in TWAS analysis.
+
+
+# Interactive Manhattan plots {.tabset}
+
+Row
+-----------------------------------------------------------------------
+
+### HTML Widget 2: Plotly Interactive Manhattan plot of TWAS results across cell types
+
+```{r HTML2, warning=FALSE, message=FALSE, echo = FALSE, fig.width=10, fig.height=7}
+library(dplyr)
+library(ggplot2)
+library(plotly)
+
+mann_data <- read.delim("/Users/leofanfever/Documents/Biostatistics/25SPRING Classes/DATA 555 Current Topics in Data Science/Final Project/AD_All.txt")
+mann_data <- mann_data[,c(1,2,10,5,6)]
+colnames(mann_data) <- c("CHR","POS","Pvalue","label_text","dataset")
+
+threshold <- 2.5e-6
+
+chr_order <- unique(mann_data$CHR)
+suppressWarnings({
+  numeric_chr <- as.numeric(chr_order)
+  if (all(!is.na(numeric_chr))) {
+    chr_order <- as.character(sort(numeric_chr))
+  } else {
+    chr_order <- sort(chr_order)  # fallback to lexicographic if mixed
+  }
+})
+
+mann_data$CHR <- as.numeric(mann_data$CHR)
+chr_info <- mann_data %>%
+  group_by(CHR) %>%
+  summarize(chr_max = max(POS), .groups = "drop") %>%
+  mutate(offset = lag(cumsum(as.numeric(chr_max)), default = 0))
+
+mann_data <- mann_data %>%
+  left_join(chr_info, by = "CHR") %>%
+  arrange(CHR, POS) %>%
+  mutate(
+    BPcum = POS + offset,
+    logp  = -log10(Pvalue),
+    is_sig = (Pvalue < threshold)
+  )
+
+axisdf <- chr_info %>%
+  mutate(
+    chr_start = offset,
+    chr_end   = offset + chr_max,
+    center    = (chr_start + chr_end)/2
+  )
+
+cell_types <- unique(mann_data$dataset)
+
+p <- plot_ly()
+
+for (i in seq_along(cell_types)) {
+  ct <- cell_types[i]
+  
+  df_sub <- mann_data %>% filter(dataset == ct)
+  
+  point_colors <- ifelse(df_sub$is_sig, '#D92B26', '#44B5AD')
+  
+  p <- p %>%
+    add_trace(
+      data = df_sub,
+      x = ~BPcum,
+      y = ~logp,
+      type = "scatter",
+      mode = "markers",
+      marker = list(color = point_colors, size = 4),
+      text = ~paste0(
+        "Cell type: ", dataset,
+        "<br>Gene: ", label_text,
+        "<br>Chromosome: ", CHR,
+        "<br>Position: ", POS,
+        "<br>P-value: ", formatC(Pvalue, format = "e", digits = 2),
+        "<br>-log10(P): ", round(logp, 2)
+      ),
+      hoverinfo = "text",
+      showlegend = FALSE,
+      name = ct,
+      visible = ifelse(i == 1, TRUE, FALSE)
+    )
+}
+
+p <- p %>%
+  layout(
+    title = list(
+      text = "Interactive Manhattan plot of TWAS results across cell types",
+      x = 0.5,
+      xanchor = "center",
+      yanchor = "top"
+    ),
+    
+    shapes = list(
+      list(
+        type = "line",
+        xref = "paper",
+        x0 = 0,
+        x1 = 1,
+        yref = "y",
+        y0 = -log10(threshold),
+        y1 = -log10(threshold),
+        line = list(dash = "dash")
+      )
+    ),
+
+    updatemenus = list(
+      list(
+        buttons = lapply(seq_along(cell_types), function(i) {
+          list(
+            method = "update",
+            args = list(list(
+              visible = sapply(seq_along(cell_types), function(x) x == i)
+            )),
+            label = cell_types[i]
+          )
+        }),
+        direction = "down"
+      )
+    ),
+
+    xaxis = list(
+      title = "Chromosome",
+      tickmode = "array",
+      tickvals = axisdf$center,
+      ticktext = as.character(axisdf$CHR)
+    ),
+    yaxis = list(title = "-log10(p-value)")
+  )
+
+p
+```
+
+```{r HTML2_code, ref.label = 'HTML2', echo = TRUE, warning=FALSE, message=FALSE, eval = FALSE}
+library(dplyr)
+library(ggplot2)
+library(plotly)
+
+mann_data <- read.delim("/Users/leofanfever/Documents/Biostatistics/25SPRING Classes/DATA 555 Current Topics in Data Science/Final Project/AD_All.txt")
+mann_data <- mann_data[,c(1,2,10,5,6)]
+colnames(mann_data) <- c("CHR","POS","Pvalue","label_text","dataset")
+
+threshold <- 2.5e-6
+
+chr_order <- unique(mann_data$CHR)
+suppressWarnings({
+  numeric_chr <- as.numeric(chr_order)
+  if (all(!is.na(numeric_chr))) {
+    chr_order <- as.character(sort(numeric_chr))
+  } else {
+    chr_order <- sort(chr_order)  # fallback to lexicographic if mixed
+  }
+})
+
+mann_data$CHR <- as.numeric(mann_data$CHR)
+chr_info <- mann_data %>%
+  group_by(CHR) %>%
+  summarize(chr_max = max(POS), .groups = "drop") %>%
+  mutate(offset = lag(cumsum(as.numeric(chr_max)), default = 0))
+
+mann_data <- mann_data %>%
+  left_join(chr_info, by = "CHR") %>%
+  arrange(CHR, POS) %>%
+  mutate(
+    BPcum = POS + offset,
+    logp  = -log10(Pvalue),
+    is_sig = (Pvalue < threshold)
+  )
+
+axisdf <- chr_info %>%
+  mutate(
+    chr_start = offset,
+    chr_end   = offset + chr_max,
+    center    = (chr_start + chr_end)/2
+  )
+
+cell_types <- unique(mann_data$dataset)
+
+p <- plot_ly()
+
+for (i in seq_along(cell_types)) {
+  ct <- cell_types[i]
+  
+  df_sub <- mann_data %>% filter(dataset == ct)
+  
+  point_colors <- ifelse(df_sub$is_sig, '#D92B26', '#44B5AD')
+  
+  p <- p %>%
+    add_trace(
+      data = df_sub,
+      x = ~BPcum,
+      y = ~logp,
+      type = "scatter",
+      mode = "markers",
+      marker = list(color = point_colors, size = 4),
+      text = ~paste0(
+        "Cell type: ", dataset,
+        "<br>Gene: ", label_text,
+        "<br>Chromosome: ", CHR,
+        "<br>Position: ", POS,
+        "<br>P-value: ", formatC(Pvalue, format = "e", digits = 2),
+        "<br>-log10(P): ", round(logp, 2)
+      ),
+      hoverinfo = "text",
+      showlegend = FALSE,
+      name = ct,
+      visible = ifelse(i == 1, TRUE, FALSE)
+    )
+}
+
+p <- p %>%
+  layout(
+    title = list(
+      text = "Interactive Manhattan plot of TWAS results across cell types",
+      x = 0.5,
+      xanchor = "center",
+      yanchor = "top"
+    ),
+    
+    shapes = list(
+      list(
+        type = "line",
+        xref = "paper",
+        x0 = 0,
+        x1 = 1,
+        yref = "y",
+        y0 = -log10(threshold),
+        y1 = -log10(threshold),
+        line = list(dash = "dash")
+      )
+    ),
+
+    updatemenus = list(
+      list(
+        buttons = lapply(seq_along(cell_types), function(i) {
+          list(
+            method = "update",
+            args = list(list(
+              visible = sapply(seq_along(cell_types), function(x) x == i)
+            )),
+            label = cell_types[i]
+          )
+        }),
+        direction = "down"
+      )
+    ),
+
+    xaxis = list(
+      title = "Chromosome",
+      tickmode = "array",
+      tickvals = axisdf$center,
+      ticktext = as.character(axisdf$CHR)
+    ),
+    yaxis = list(title = "-log10(p-value)")
+  )
+
+p
+```
+
+Row
+-----------------------------------------------------------------------
+
+### Title and labels
+
+- Title: Interactive Manhattan plot of TWAS results.
+- X-axis: Genomic position (arranged by chromosome).
+- Y-axis: -log_10⁡(p-value) from ACAT method, unitless.
+
+### Key takeaways
+
+- In the manhattan plot, each dot is a gene, each column is a chromosome, and y is the corresponding -log10(p-value) from ACAT method, when hover on the dot there will be a detail information for each gene. From the plots, we can see that there are similar pattern of significant genes across different cell types, but also there are some cell type specific significant genes.
