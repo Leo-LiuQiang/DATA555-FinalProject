@@ -7,7 +7,7 @@ output:
     self_contained: false
     orientation: columns
     code_folding: hide
-    source_code: embed
+    source_code: "https://github.com/Leo-LiuQiang/DATA555-FinalProject"
     vertical_layout: fill
     theme:
       version: 5
