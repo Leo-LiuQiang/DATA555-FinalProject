@@ -4,6 +4,7 @@ author: "Qiang Liu"
 date: "2025-04-25"
 output:
   flexdashboard::flex_dashboard:
+    self_contained: false
     orientation: columns
     code_folding: hide
     source_code: embed
